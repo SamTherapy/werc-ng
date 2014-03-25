@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+
+    <link rel="stylesheet" href="/pub/style/style.css" type="text/css" media="screen, handheld" title="default">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/_werc/pub/style.css" type="text/css" media="screen" title="default">
+
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"> 
+
+<!--
+% if(! ~ $#meta_description 0)
+%   echo '    <meta name="description" content="'$"meta_description'">'
+% if(! ~ $#meta_keywords 0)
+%   echo '    <meta name="keywords" content="'$"meta_keywords'">'
+
+% h = `{get_lib_file headers.inc}
+% if(! ~ $#h 0)
+%   cat $h
+
+    %($"extraHeaders%)
+-->
+
+</head>
+<body>
+<div id="header">
+    <div class="superHeader">
+	{{template "topbar.html"}}
+    </div>
+
+    <div class="midHeader">
+        <h1 class="headerTitle"><a href="/">{{.Config.Title}}</a><span id="headerSubTitle">{{.Config.Subtitle}}</span></h1>
+    </div>
+        
+    <div class="subHeader">
+	<br>
+    </div>
+</div>
+
+<div id="side-bar">
+    <div>
+        {{template "menu.html" .Menu}}
+    </div>
+</div>
+<div id="main-copy">
+    {{.Content}}
+</div>
+<!--
+% run_handlers $handlers_body_head
+
+% run_handler $handler_body_main
+
+% run_handlers $handlers_body_foot
+-->
+
+<div id="footer">
+    {{template "footer.html"}}
+</div>
+
+</body>
+</html>
+

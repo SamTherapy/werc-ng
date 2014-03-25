@@ -1,0 +1,15 @@
+	    <ul>
+            {{range .}}
+		{{if .This}}
+		    <li><a class="thisPage" href="{{.Path}}">» {{.Name}}</a></li>
+		{{else}}
+		    <li><a href="{{.Path}}">› {{.Name}}</a></li>
+		{{end}}
+
+		{{with $sub := .Sub}}
+		    <li>
+		    {{template "menu.html" $sub}}
+		    </li>
+		{{end}}
+	    {{end}}
+       	    </ul>
