@@ -2,18 +2,22 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"flag"
 	"fmt"
-	"github.com/russross/blackfriday"
-	"html/template"
-	"io/ioutil"
-	"log"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"flag"
+	"io/ioutil"
+	"log"
+	"os"
+
+	"encoding/json"
+	"github.com/russross/blackfriday"
+	"html/template"
+
+	"net"
+	"net/http"
+	"path/filepath"
 )
 
 var (
