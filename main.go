@@ -169,7 +169,7 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 }
 
 func (werc *Werc) WercCommon(w http.ResponseWriter, r *http.Request, page *WercPage) {
-	site := r.URL.Host
+	site, _, _ := net.SplitHostPort(r.Host)
 	if site == "" {
 		site = werc.conf.MasterSite
 	}
@@ -285,7 +285,7 @@ func (werc *Werc) Werc404(w http.ResponseWriter, r *http.Request) {
 
 func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s", r.URL)
-	site := r.Host
+	site, _, _ := net.SplitHostPort(r.Host)
 	if site == "" {
 		site = werc.conf.MasterSite
 	}
