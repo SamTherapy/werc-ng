@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"flag"
-	"io/ioutil"
 	"log"
 	"os"
 
 	"encoding/json"
-	"github.com/russross/blackfriday"
 	"html/template"
+
+	"github.com/russross/blackfriday"
 
 	"net"
 	"net/http"
@@ -46,19 +46,32 @@ type MenuEntry struct {
 }
 
 type Werc struct {
-	root string
-	conf WercConfig
-	tmpl *template.Template
+	root  string
+	conf  WercConfig
+	tmpl  *template.Template
+	store Store
 }
 
 func New(root string) *Werc {
 	w := new(Werc)
 	w.root = root
-	w.tmpl = template.Must(template.ParseGlob(root + "/lib/*.html"))
+	w.tmpl = template.New("root")
 
-	b, err := ioutil.ReadFile(root + "/etc/config.json")
+	var err error
+	if strings.HasSuffix(root, ".zip") {
+		w.store, err = openZipStore(root)
+	} else {
+		w.store = &fileStore{root}
+		err = nil
+	}
 	if err != nil {
-		log.Printf("no config.json in %s", root)
+		log.Printf("can't open root: %v", err)
+		return nil
+	}
+
+	b, err := w.store.ReadFile("etc/config.json")
+	if err != nil {
+		log.Printf("error loading config.json: %v", err)
 		return nil
 	}
 	err = json.Unmarshal(b, &w.conf)
@@ -66,6 +79,17 @@ func New(root string) *Werc {
 		log.Printf("%s: %s", root+"/config.json", err)
 		return nil
 	}
+
+	// load templates
+	tmpls := []string{"base", "directory", "footer", "menu", "text", "topbar"}
+	for _, tn := range tmpls {
+		b, err := w.store.ReadFile(fmt.Sprintf("lib/%s.html", tn))
+		if err != nil {
+			panic(err)
+		}
+		template.Must(w.tmpl.New(tn + ".html").Parse(string(b)))
+	}
+
 	return w
 }
 
@@ -134,7 +158,7 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 	for i := range dirs {
 		var sub []MenuEntry
 		b := filepath.Join(base, dirs[i])
-		fi, _ := ioutil.ReadDir(b)
+		fi, _ := werc.store.ReadDir(b)
 		for _, f := range fi {
 			newname, ok := okmenu(b, f)
 			if !ok {
@@ -172,23 +196,20 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 	return root
 }
 
-func (werc *Werc) WercCommon(w http.ResponseWriter, r *http.Request, page *WercPage) {
-	site, _, _ := net.SplitHostPort(r.Host)
-	if site == "" {
-		site = werc.conf.MasterSite
-	}
+func (werc *Werc) WercCommon(w http.ResponseWriter, r *http.Request, site string, page *WercPage) {
 	path := r.URL.Path
 
 	page.Menu = werc.genmenu(site, path)
 
-	conf := werc.root + "/sites/" + site + "/_werc/config.json"
-	b, err := ioutil.ReadFile(conf)
+	conf := "sites/" + site + "/_werc/config.json"
+	b, err := werc.store.ReadFile(conf)
 	if err != nil {
 		log.Printf("%s: %s", conf, err)
-	}
-	err = json.Unmarshal(b, &page.Config)
-	if err != nil {
-		log.Printf("%s: %s", conf, err)
+	} else {
+		err = json.Unmarshal(b, &page.Config)
+		if err != nil {
+			log.Printf("%s: %s", conf, err)
+		}
 	}
 	//log.Printf("root %+v", page.Menu)
 	if err := werc.tmpl.ExecuteTemplate(w, "base.html", page); err != nil {
@@ -221,7 +242,7 @@ func okmenu(base string, fi os.FileInfo) (string, bool) {
 	return "", false
 }
 
-func (werc *Werc) WercDir(w http.ResponseWriter, r *http.Request, dir string) {
+func (werc *Werc) WercDir(w http.ResponseWriter, r *http.Request, site, dir string) {
 	type DirEntry struct {
 		Name string
 		Fi   os.FileInfo
@@ -236,7 +257,7 @@ func (werc *Werc) WercDir(w http.ResponseWriter, r *http.Request, dir string) {
 	data.Title = r.URL.Path
 
 	buf := new(bytes.Buffer)
-	fi, err := ioutil.ReadDir(dir)
+	fi, err := werc.store.ReadDir(dir)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 500)
 		return
@@ -249,30 +270,30 @@ func (werc *Werc) WercDir(w http.ResponseWriter, r *http.Request, dir string) {
 	}
 
 	werc.tmpl.ExecuteTemplate(buf, "directory.html", data)
-	werc.WercCommon(w, r, &WercPage{Title: ptitle(dir), Content: template.HTML(buf.String())})
+	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(dir), Content: template.HTML(buf.String())})
 }
 
-func (werc *Werc) WercMd(w http.ResponseWriter, r *http.Request, path string) {
-	b, err := ioutil.ReadFile(path)
+func (werc *Werc) WercMd(w http.ResponseWriter, r *http.Request, site, path string) {
+	b, err := werc.store.ReadFile(path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
 	}
 	md := blackfriday.MarkdownBasic(b)
-	werc.WercCommon(w, r, &WercPage{Title: ptitle(path), Content: template.HTML(string(md))})
+	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(path), Content: template.HTML(string(md))})
 }
 
-func (werc *Werc) WercHTML(w http.ResponseWriter, r *http.Request, path string) {
-	b, err := ioutil.ReadFile(path)
+func (werc *Werc) WercHTML(w http.ResponseWriter, r *http.Request, site, path string) {
+	b, err := werc.store.ReadFile(path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
 	}
-	werc.WercCommon(w, r, &WercPage{Title: ptitle(path), Content: template.HTML(string(b))})
+	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(path), Content: template.HTML(string(b))})
 }
 
-func (werc *Werc) WercTXT(w http.ResponseWriter, r *http.Request, path string) {
-	b, err := ioutil.ReadFile(path)
+func (werc *Werc) WercTXT(w http.ResponseWriter, r *http.Request, site, path string) {
+	b, err := werc.store.ReadFile(path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
@@ -280,11 +301,25 @@ func (werc *Werc) WercTXT(w http.ResponseWriter, r *http.Request, path string) {
 
 	buf := new(bytes.Buffer)
 	werc.tmpl.ExecuteTemplate(buf, "text.html", string(b))
-	werc.WercCommon(w, r, &WercPage{Title: ptitle(path), Content: template.HTML(buf.String())})
+	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(path), Content: template.HTML(buf.String())})
 }
 
-func (werc *Werc) Werc404(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
+func (werc *Werc) Pub(w http.ResponseWriter, r *http.Request, path string) {
+	if strings.HasPrefix(path, "/") {
+		path = path[1:]
+	}
+
+	b, err := werc.store.ReadFile(path)
+	if err != nil {
+		log.Printf("Pub: %v", err)
+		http.Error(w, err.Error(), 404)
+		return
+	}
+
+	buf := bytes.NewReader(b)
+	http.ServeContent(w, r, filepath.Base(path), time.Now(), buf)
+
+	log.Printf("pub sent %d bytes", len(b))
 }
 
 func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +330,14 @@ func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 
-	base := werc.root + "/sites/" + site
+	// try pub first
+	if strings.HasPrefix(path, "/pub") {
+		werc.Pub(w, r, path)
+		return
+	}
+
+again:
+	base := "sites/" + site
 
 	if strings.HasSuffix(path, "/index") {
 		http.Redirect(w, r, strings.TrimSuffix(path, "/index"), http.StatusMovedPermanently)
@@ -303,7 +345,7 @@ func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !strings.HasSuffix(path, "/") {
-		if st, err := os.Stat(base + path); err == nil {
+		if st, err := werc.store.Stat(base + path); err == nil {
 			if st.Mode().IsDir() {
 				http.Redirect(w, r, path+"/", http.StatusMovedPermanently)
 				return
@@ -312,11 +354,13 @@ func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// various format handling
-	sufferring := map[string]func(w http.ResponseWriter, r *http.Request, path string){
+	sufferring := map[string]func(w http.ResponseWriter, r *http.Request, site, path string){
 		"md":   werc.WercMd,
 		"html": werc.WercHTML,
 		"txt":  werc.WercTXT,
 	}
+
+	log.Printf("path %v", base)
 
 	for suf, handler := range sufferring {
 		f := base
@@ -326,18 +370,18 @@ func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f = filepath.Join(f, path+"."+suf)
 		}
 
-		if _, err := os.Stat(f); err == nil {
+		if _, err := werc.store.Stat(f); err == nil {
 			log.Printf("%s %s", suf, f)
-			handler(w, r, f)
+			handler(w, r, site, f)
 			return
 		}
 	}
 
-	if st, err := os.Stat(base + path); err == nil {
+	if st, err := werc.store.Stat(base + path); err == nil {
 		if st.Mode().IsDir() {
 			// directory handling
 			log.Printf("d %s", base+path)
-			werc.WercDir(w, r, base+path)
+			werc.WercDir(w, r, site, base+path)
 			return
 		} else {
 			// plain file handling
@@ -347,7 +391,14 @@ func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	werc.Werc404(w, r)
+	if site != werc.conf.MasterSite {
+		site = werc.conf.MasterSite
+		goto again
+	}
+
+	log.Printf("404 %s", path)
+
+	http.NotFound(w, r)
 }
 
 func main() {
@@ -355,7 +406,6 @@ func main() {
 	w := New(*root)
 	mux := http.NewServeMux()
 	mux.Handle("/", w)
-	mux.Handle("/pub/", http.StripPrefix("/pub/", http.FileServer(http.Dir(filepath.Join(w.root, "pub")))))
 	s := &http.Server{
 		Addr:           *listen,
 		Handler:        mux,
