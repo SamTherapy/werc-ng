@@ -133,7 +133,7 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 	var dirs []string
 	var root []MenuEntry
 
-	base := werc.root + "/sites/" + site
+	base := "sites/" + site
 
 	spl := strings.Split(strings.TrimPrefix(filepath.Clean(dir), "/"), string(filepath.Separator))
 
