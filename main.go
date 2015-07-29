@@ -13,11 +13,11 @@ import (
 	"encoding/json"
 	"html/template"
 
-	"github.com/russross/blackfriday"
-
 	"net"
 	"net/http"
 	"path/filepath"
+
+	"github.com/russross/blackfriday"
 )
 
 var (
@@ -279,7 +279,7 @@ func (werc *Werc) WercMd(w http.ResponseWriter, r *http.Request, site, path stri
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
 	}
-	md := blackfriday.MarkdownBasic(b)
+	md := blackfriday.MarkdownCommon(b)
 	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(path), Content: template.HTML(string(md))})
 }
 
@@ -404,6 +404,9 @@ again:
 func main() {
 	flag.Parse()
 	w := New(*root)
+	if w == nil {
+		os.Exit(1)
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/", w)
 	s := &http.Server{

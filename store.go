@@ -4,15 +4,19 @@ import (
 	"archive/zip"
 	"io/ioutil"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mischief/httpreader"
 )
 
 type Store interface {
 	ReadFile(filename string) ([]byte, error)
 	ReadDir(dirname string) ([]os.FileInfo, error)
 	Stat(name string) (os.FileInfo, error)
+	Close() error
 }
 
 type fileStore struct {
@@ -26,7 +30,26 @@ func (f *fileStore) ReadFile(filename string) ([]byte, error) {
 
 func (f *fileStore) ReadDir(dirname string) ([]os.FileInfo, error) {
 	path := filepath.Join(f.base, dirname)
-	return ioutil.ReadDir(path)
+	// resolve symlinks
+	fis, err := ioutil.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, fi := range fis {
+		if fi.Mode()&os.ModeSymlink == os.ModeSymlink {
+			sympath := filepath.Join(path, fi.Name())
+			newfi, err := os.Stat(sympath)
+			if err != nil {
+				log.Printf("broken symlink %q: %s", sympath, err)
+				continue
+			}
+
+			fis[i] = newfi
+		}
+	}
+
+	return fis, nil
 }
 
 func (f *fileStore) Stat(name string) (os.FileInfo, error) {
@@ -34,28 +57,57 @@ func (f *fileStore) Stat(name string) (os.FileInfo, error) {
 	return os.Stat(path)
 }
 
+func (f *fileStore) Close() error {
+	return nil
+}
+
 type zipStore struct {
-	archive *zip.ReadCloser
+	archive *zip.Reader
+	closer  func() error
 	files   map[string]*zip.File
 	dirs    map[string][]*zip.File
 }
 
 func openZipStore(file string) (*zipStore, error) {
-	r, err := zip.OpenReader(file)
+	url, err := url.Parse(file)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	zs := &zipStore{r, make(map[string]*zip.File), make(map[string][]*zip.File)}
+	zs := &zipStore{
+		files: make(map[string]*zip.File),
+		dirs:  make(map[string][]*zip.File),
+	}
+
+	switch url.Scheme {
+	case "", "file":
+		r, err := zip.OpenReader(file)
+		if err != nil {
+			return nil, err
+		}
+		zs.closer = r.Close
+		zs.archive = &r.Reader
+	case "http", "https":
+		ra := httpreader.NewReader(file)
+		sz, err := ra.Size()
+		if err != nil {
+			return nil, err
+		}
+		r, err := zip.NewReader(ra, sz)
+		if err != nil {
+			return nil, err
+		}
+		zs.archive = r
+	}
 
 	log.Printf("zip %q loading files...", file)
-	for _, file := range r.File {
+	for _, file := range zs.archive.File {
 		zs.files[file.Name] = file
 		log.Printf("%v...", file.Name)
 	}
 
 	log.Printf("zip %q loading directories...", file)
-	for _, dir := range r.File {
+	for _, dir := range zs.archive.File {
 		if !strings.HasSuffix(dir.Name, "/") {
 			continue
 		}
@@ -132,4 +184,12 @@ func (z *zipStore) Stat(name string) (os.FileInfo, error) {
 		return f.FileInfo(), nil
 	}
 	return nil, os.ErrNotExist
+}
+
+func (z *zipStore) Close() error {
+	if z.closer != nil {
+		return z.closer()
+	}
+
+	return nil
 }
