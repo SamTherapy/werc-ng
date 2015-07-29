@@ -23,6 +23,8 @@ import (
 var (
 	listen = flag.String("l", ":8080", "set http listener to [ip]:port")
 	root   = flag.String("root", "werc", "werc webroot")
+
+	indexFiles = []string{"index", "README"}
 )
 
 type WercConfig struct {
@@ -225,8 +227,10 @@ func okmenu(base string, fi os.FileInfo) (string, bool) {
 	if fi.Name() == "_werc" {
 		return "", false
 	}
-	if strings.HasPrefix(fi.Name(), "index.") {
-		return "", false
+	for _, index := range indexFiles {
+		if strings.HasPrefix(fi.Name(), index+".") {
+			return "", false
+		}
 	}
 	if strings.Contains(fi.Name(), "sitemap.") {
 		return "", false
@@ -363,17 +367,21 @@ again:
 	log.Printf("path %v", base)
 
 	for suf, handler := range sufferring {
-		f := base
+		var tryfiles []string
 		if strings.HasSuffix(path, "/") {
-			f = filepath.Join(f, path, "index."+suf)
+			for _, index := range indexFiles {
+				tryfiles = append(tryfiles, filepath.Join(base, path, index+"."+suf))
+			}
 		} else {
-			f = filepath.Join(f, path+"."+suf)
+			tryfiles = append(tryfiles, filepath.Join(base, path+"."+suf))
 		}
 
-		if _, err := werc.store.Stat(f); err == nil {
-			log.Printf("%s %s", suf, f)
-			handler(w, r, site, f)
-			return
+		for _, f := range tryfiles {
+			if _, err := werc.store.Stat(f); err == nil {
+				log.Printf("%s %s", suf, f)
+				handler(w, r, site, f)
+				return
+			}
 		}
 	}
 
