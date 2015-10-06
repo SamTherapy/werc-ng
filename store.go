@@ -88,7 +88,10 @@ func openZipStore(file string) (*zipStore, error) {
 		zs.closer = r.Close
 		zs.archive = &r.Reader
 	case "http", "https":
-		ra := httpreader.NewReader(file)
+		ra, err := httpreader.NewReader(file)
+		if err != nil {
+			return nil, err
+		}
 		sz, err := ra.Size()
 		if err != nil {
 			return nil, err
