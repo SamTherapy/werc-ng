@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,18 +32,24 @@ type WercConfig struct {
 	Subtitle   string
 }
 
-type WercPage struct {
-	Title   string        // <head> title
-	Menu    []MenuEntry   // menu entries
-	Content template.HTML // inner page content
-	Config  WercConfig    // site-specific config
-}
-
 type MenuEntry struct {
 	Name string
 	Path string
 	This bool
-	Sub  []MenuEntry
+	Sub  []*MenuEntry
+}
+
+type MenuEntries []*MenuEntry
+
+func (me MenuEntries) Len() int           { return len(me) }
+func (me MenuEntries) Swap(i, j int)      { me[i], me[j] = me[j], me[i] }
+func (me MenuEntries) Less(i, j int) bool { return me[i].Name < me[j].Name }
+
+type WercPage struct {
+	Title   string        // <head> title
+	Menu    MenuEntries   // menu entries
+	Content template.HTML // inner page content
+	Config  WercConfig    // site-specific config
 }
 
 type Werc struct {
@@ -127,9 +134,9 @@ func ptitle(s string) string {
 	return file
 }
 
-func (werc *Werc) genmenu(site, dir string) []MenuEntry {
+func (werc *Werc) genmenu(site, dir string) MenuEntries {
 	var dirs []string
-	var root []MenuEntry
+	var root MenuEntries
 
 	base := "sites/" + site
 
@@ -152,9 +159,9 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 
 	//log.Printf("dirs %v", dirs)
 
-	var last []MenuEntry
+	var last MenuEntries
 	for i := range dirs {
-		var sub []MenuEntry
+		var sub MenuEntries
 		b := filepath.Join(base, dirs[i])
 		fi, _ := readdir(werc.fs, b)
 		for _, f := range fi {
@@ -162,7 +169,7 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 			if !ok {
 				continue
 			}
-			me := MenuEntry{Name: newname, Path: filepath.Join(dirs[i], newname)}
+			me := &MenuEntry{Name: newname, Path: filepath.Join(dirs[i], newname)}
 			if f.Mode().IsDir() {
 				me.Path = me.Path + "/"
 				me.Name = me.Name + "/"
@@ -173,6 +180,10 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 			}
 			//log.Printf("me %+v", me)
 			sub = append(sub, me)
+		}
+
+		if sub != nil {
+			sort.Sort(sub)
 		}
 
 		if dirs[i] == "/" {
@@ -190,6 +201,8 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 			}
 		}
 	}
+
+	sort.Sort(root)
 
 	return root
 }
