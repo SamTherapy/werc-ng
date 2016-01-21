@@ -2,20 +2,18 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"strings"
-	"time"
-
-	"flag"
-	"log"
-	"os"
-
 	"encoding/json"
+	"flag"
+	"fmt"
 	"html/template"
-
+	"io"
+	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/russross/blackfriday"
 )
@@ -48,10 +46,11 @@ type MenuEntry struct {
 }
 
 type Werc struct {
-	root  string
-	conf  WercConfig
-	tmpl  *template.Template
-	store Store
+	root string
+	conf WercConfig
+	tmpl *template.Template
+
+	fs *FS
 }
 
 func New(root string) *Werc {
@@ -60,22 +59,19 @@ func New(root string) *Werc {
 	w.tmpl = template.New("root")
 
 	var err error
-	if strings.HasSuffix(root, ".zip") {
-		w.store, err = openZipStore(root)
-	} else {
-		w.store = &fileStore{root}
-		err = nil
-	}
+
+	w.fs, err = NewFS(root)
 	if err != nil {
 		log.Printf("can't open root: %v", err)
 		return nil
 	}
 
-	b, err := w.store.ReadFile("etc/config.json")
+	b, err := readfile(w.fs, "etc/config.json")
 	if err != nil {
 		log.Printf("error loading config.json: %v", err)
 		return nil
 	}
+
 	err = json.Unmarshal(b, &w.conf)
 	if err != nil {
 		log.Printf("%s: %s", root+"/config.json", err)
@@ -85,7 +81,7 @@ func New(root string) *Werc {
 	// load templates
 	tmpls := []string{"base", "directory", "footer", "menu", "text", "topbar"}
 	for _, tn := range tmpls {
-		b, err := w.store.ReadFile(fmt.Sprintf("lib/%s.html", tn))
+		b, err := readfile(w.fs, fmt.Sprintf("lib/%s.html", tn))
 		if err != nil {
 			panic(err)
 		}
@@ -160,7 +156,7 @@ func (werc *Werc) genmenu(site, dir string) []MenuEntry {
 	for i := range dirs {
 		var sub []MenuEntry
 		b := filepath.Join(base, dirs[i])
-		fi, _ := werc.store.ReadDir(b)
+		fi, _ := readdir(werc.fs, b)
 		for _, f := range fi {
 			newname, ok := okmenu(b, f)
 			if !ok {
@@ -204,7 +200,7 @@ func (werc *Werc) WercCommon(w http.ResponseWriter, r *http.Request, site string
 	page.Menu = werc.genmenu(site, path)
 
 	conf := "sites/" + site + "/_werc/config.json"
-	b, err := werc.store.ReadFile(conf)
+	b, err := readfile(werc.fs, conf)
 	if err != nil {
 		log.Printf("%s: %s", conf, err)
 	} else {
@@ -261,7 +257,7 @@ func (werc *Werc) WercDir(w http.ResponseWriter, r *http.Request, site, dir stri
 	data.Title = r.URL.Path
 
 	buf := new(bytes.Buffer)
-	fi, err := werc.store.ReadDir(dir)
+	fi, err := readdir(werc.fs, dir)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 500)
 		return
@@ -278,7 +274,7 @@ func (werc *Werc) WercDir(w http.ResponseWriter, r *http.Request, site, dir stri
 }
 
 func (werc *Werc) WercMd(w http.ResponseWriter, r *http.Request, site, path string) {
-	b, err := werc.store.ReadFile(path)
+	b, err := readfile(werc.fs, path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
@@ -288,7 +284,7 @@ func (werc *Werc) WercMd(w http.ResponseWriter, r *http.Request, site, path stri
 }
 
 func (werc *Werc) WercHTML(w http.ResponseWriter, r *http.Request, site, path string) {
-	b, err := werc.store.ReadFile(path)
+	b, err := readfile(werc.fs, path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
@@ -297,7 +293,7 @@ func (werc *Werc) WercHTML(w http.ResponseWriter, r *http.Request, site, path st
 }
 
 func (werc *Werc) WercTXT(w http.ResponseWriter, r *http.Request, site, path string) {
-	b, err := werc.store.ReadFile(path)
+	b, err := readfile(werc.fs, path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
@@ -313,7 +309,7 @@ func (werc *Werc) Pub(w http.ResponseWriter, r *http.Request, path string) {
 		path = path[1:]
 	}
 
-	b, err := werc.store.ReadFile(path)
+	b, err := readfile(werc.fs, path)
 	if err != nil {
 		log.Printf("Pub: %v", err)
 		http.Error(w, err.Error(), 404)
@@ -349,8 +345,11 @@ again:
 	}
 
 	if !strings.HasSuffix(path, "/") {
-		if st, err := werc.store.Stat(base + path); err == nil {
-			if st.Mode().IsDir() {
+		f, err := werc.fs.Open(base + path)
+		if err == nil {
+			defer f.Close()
+			fi, err := f.Stat()
+			if err != nil && fi.IsDir() {
 				http.Redirect(w, r, path+"/", http.StatusMovedPermanently)
 				return
 			}
@@ -377,26 +376,35 @@ again:
 		}
 
 		for _, f := range tryfiles {
-			if _, err := werc.store.Stat(f); err == nil {
-				log.Printf("%s %s", suf, f)
-				handler(w, r, site, f)
-				return
+			fh, err := werc.fs.Open(f)
+			if err != nil {
+				continue
 			}
+
+			defer fh.Close()
+
+			log.Printf("%s %s", suf, f)
+			handler(w, r, site, f)
+			return
 		}
 	}
 
-	if st, err := werc.store.Stat(base + path); err == nil {
+	if f, err := werc.fs.Open(base + path); err == nil {
+		defer f.Close()
+
+		st, _ := f.Stat()
 		if st.Mode().IsDir() {
 			// directory handling
 			log.Printf("d %s", base+path)
 			werc.WercDir(w, r, site, base+path)
 			return
-		} else {
-			// plain file handling
-			log.Printf("f %s", base+path)
-			http.ServeFile(w, r, base+path)
-			return
 		}
+
+		// plain file handling
+		log.Printf("f %s", base+path)
+
+		io.Copy(w, f)
+		return
 	}
 
 	if site != werc.conf.MasterSite {
