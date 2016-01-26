@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -415,6 +416,21 @@ again:
 
 		// plain file handling
 		log.Printf("f %s", base+path)
+
+		// ripped from http.serveContent
+		ctype := mime.TypeByExtension(filepath.Ext(path))
+		if ctype == "" {
+			// read a chunk to decide between utf-8 text and binary
+			var buf [512]byte
+			n, _ := io.ReadFull(f, buf[:])
+			ctype = http.DetectContentType(buf[:n])
+			_, err := f.Seek(0, os.SEEK_SET) // rewind to output whole file
+			if err != nil {
+				http.Error(w, "seeker can't seek", http.StatusInternalServerError)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", ctype)
 
 		io.Copy(w, f)
 		return
