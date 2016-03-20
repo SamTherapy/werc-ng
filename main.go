@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -448,18 +449,37 @@ again:
 
 func main() {
 	flag.Parse()
+
 	w := New(*root)
 	if w == nil {
-		os.Exit(1)
+		log.Fatal("can't create root")
 	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/", w)
+
+	var listener net.Listener
+	var tlsconf *tls.Config
+	var err error
+
+	if *letsencrypt {
+		listener, tlsconf, err = doTLS(*listen)
+	} else {
+		listener, err = net.Listen("tcp", *listen)
+	}
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	s := &http.Server{
 		Addr:           *listen,
 		Handler:        mux,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
+		TLSConfig:      tlsconf,
 	}
-	log.Fatal(s.ListenAndServe())
+
+	log.Fatal(s.Serve(listener))
 }
