@@ -1,7 +1,7 @@
 P=gowerc
 SRC=bitbucket.org
 USER?=mischief
-GO_VERSION=1.5.3
+GO_VERSION=1.6
 
 all:	$(USER)/$(P)
 
