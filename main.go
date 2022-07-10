@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/russross/blackfriday"
+	"github.com/russross/blackfriday/v2"
 )
 
 var (
 	listen = flag.String("l", ":8080", "set http listener to [ip]:port")
-	root   = flag.String("root", "werc", "werc webroot")
+	root   = flag.String("root", "root", "werc webroot")
 
 	indexFiles = []string{"index", "README"}
 )
@@ -294,7 +294,7 @@ func (werc *Werc) WercMd(w http.ResponseWriter, r *http.Request, site, path stri
 		http.Error(w, fmt.Sprintf("%s", err), 404)
 		return
 	}
-	md := blackfriday.MarkdownCommon(b)
+	md := blackfriday.Run(b)
 	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(path), Content: template.HTML(string(md))})
 }
 
@@ -462,11 +462,7 @@ func main() {
 	var tlsconf *tls.Config
 	var err error
 
-	if *letsencrypt {
-		listener, tlsconf, err = doTLS(*listen)
-	} else {
-		listener, err = net.Listen("tcp", *listen)
-	}
+	listener, err = net.Listen("tcp", *listen)
 
 	if err != nil {
 		log.Fatal(err)
