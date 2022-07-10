@@ -12,8 +12,7 @@ clone of http://werc.cat-v.org/ in go.
 
 ### with go
 
-	go get -d bitbucket.org/mischief/gowerc
-	go install bitbucket.org/mischief/gowerc
+	go install git.froth.zone/sam/go2werc
 
 ### in docker
 
