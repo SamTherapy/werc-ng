@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang={{.Config.Lang}}>
 <head>
     <title>{{.Title}}</title>
 
@@ -25,28 +25,24 @@
 
 </head>
 <body>
-<div id="header">
-    <div class="superHeader">
+<header>
 	{{template "topbar.html"}}
-    </div>
 
-    <div class="midHeader">
-        <h1 class="headerTitle"><a href="/">{{.Config.Title}}</a><span id="headerSubTitle">{{.Config.Subtitle}}</span></h1>
-    </div>
-        
-    <div class="subHeader">
-	<br>
-    </div>
-</div>
+     <h1><a href="/">{{.Config.Title}}<span id="headerSubTitle">{{.Config.Subtitle}}</span></a></h1>
 
-<div id="side-bar">
+    <!-- <div class="subHeader">
+	<br> -->
+    </div>
+</header>
+
+<nav id="side-bar">
     <div>
         {{template "menu.html" .Menu}}
     </div>
-</div>
-<div id="main-copy">
+</nav>
+<article>
     {{.Content}}
-</div>
+</article>
 <!--
 % run_handlers $handlers_body_head
 
@@ -55,9 +51,9 @@
 % run_handlers $handlers_body_foot
 -->
 
-<div id="footer">
+<footer>
     {{template "footer.html"}}
-</div>
+</footer>
 
 </body>
 </html>

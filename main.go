@@ -13,7 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -32,6 +32,7 @@ type WercConfig struct {
 	MasterSite string
 	Title      string
 	Subtitle   string
+	Lang       string
 }
 
 type MenuEntry struct {
@@ -127,7 +128,7 @@ func ptitle(s string) string {
 	if idx := strings.LastIndex(s, "index"); idx != -1 {
 		s = s[:idx-1]
 	}
-	_, file := filepath.Split(s)
+	_, file := path.Split(s)
 	for _, suf := range []string{".md", ".txt", ".html"} {
 		if strings.HasSuffix(file, suf) {
 			return strings.TrimSuffix(file, suf)
@@ -142,9 +143,9 @@ func (werc *Werc) genmenu(site, dir string) MenuEntries {
 
 	base := "sites/" + site
 
-	spl := strings.Split(strings.TrimPrefix(filepath.Clean(dir), "/"), string(filepath.Separator))
+	spl := strings.Split(strings.TrimPrefix(path.Clean(dir), "/"), "/")
 
-	_, current := filepath.Split(dir)
+	_, current := path.Split(dir)
 
 	if current != "" {
 		spl = spl[:len(spl)-1]
@@ -155,7 +156,7 @@ func (werc *Werc) genmenu(site, dir string) MenuEntries {
 	dirs = append(dirs, "/")
 
 	for i := range spl {
-		path := "/" + filepath.Join(spl[:i+1]...)
+		path := "/" + path.Join(spl[:i+1]...)
 		dirs = append(dirs, path)
 	}
 
@@ -164,14 +165,14 @@ func (werc *Werc) genmenu(site, dir string) MenuEntries {
 	var last MenuEntries
 	for i := range dirs {
 		var sub MenuEntries
-		b := filepath.Join(base, dirs[i])
+		b := path.Join(base, dirs[i])
 		fi, _ := readdir(werc.fs, b)
 		for _, f := range fi {
 			newname, ok := okmenu(b, f)
 			if !ok {
 				continue
 			}
-			me := &MenuEntry{Name: newname, Path: filepath.Join(dirs[i], newname)}
+			me := &MenuEntry{Name: newname, Path: path.Join(dirs[i], newname)}
 			if f.Mode().IsDir() {
 				me.Path = me.Path + "/"
 				me.Name = me.Name + "/"
@@ -194,7 +195,7 @@ func (werc *Werc) genmenu(site, dir string) MenuEntries {
 		} else {
 			// mark directories as currently being browsed
 			for l, v := range last {
-				_, file := filepath.Split(dirs[i])
+				_, file := path.Split(dirs[i])
 				if v.Name == file+"/" {
 					last[l].This = true
 					last[l].Sub = sub
@@ -319,12 +320,10 @@ func (werc *Werc) WercTXT(w http.ResponseWriter, r *http.Request, site, path str
 	werc.WercCommon(w, r, site, &WercPage{Title: ptitle(path), Content: template.HTML(buf.String())})
 }
 
-func (werc *Werc) Pub(w http.ResponseWriter, r *http.Request, path string) {
-	if strings.HasPrefix(path, "/") {
-		path = path[1:]
-	}
+func (werc *Werc) Pub(w http.ResponseWriter, r *http.Request, route string) {
+	strings.TrimPrefix(route, "/")
 
-	b, err := readfile(werc.fs, path)
+	b, err := readfile(werc.fs, route)
 	if err != nil {
 		log.Printf("Pub: %v", err)
 		http.Error(w, err.Error(), 404)
@@ -332,7 +331,7 @@ func (werc *Werc) Pub(w http.ResponseWriter, r *http.Request, path string) {
 	}
 
 	buf := bytes.NewReader(b)
-	http.ServeContent(w, r, filepath.Base(path), time.Now(), buf)
+	http.ServeContent(w, r, path.Base(route), time.Now(), buf)
 
 	log.Printf("pub sent %d bytes", len(b))
 }
@@ -343,29 +342,29 @@ func (werc *Werc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if site == "" {
 		site = werc.conf.MasterSite
 	}
-	path := r.URL.Path
+	route := r.URL.Path
 
 	// try pub first
-	if strings.HasPrefix(path, "/pub") {
-		werc.Pub(w, r, path)
+	if strings.HasPrefix(route, "/pub") {
+		werc.Pub(w, r, route)
 		return
 	}
 
 again:
 	base := "sites/" + site
 
-	if strings.HasSuffix(path, "/index") {
-		http.Redirect(w, r, strings.TrimSuffix(path, "/index"), http.StatusMovedPermanently)
+	if strings.HasSuffix(route, "/index") {
+		http.Redirect(w, r, strings.TrimSuffix(route, "/index"), http.StatusMovedPermanently)
 		return
 	}
 
-	if !strings.HasSuffix(path, "/") {
-		f, err := werc.fs.Open(base + path)
+	if !strings.HasSuffix(route, "/") {
+		f, err := werc.fs.Open(base + route)
 		if err == nil {
 			defer f.Close()
 			fi, err := f.Stat()
 			if err != nil && fi.IsDir() {
-				http.Redirect(w, r, path+"/", http.StatusMovedPermanently)
+				http.Redirect(w, r, route+"/", http.StatusMovedPermanently)
 				return
 			}
 		}
@@ -382,12 +381,12 @@ again:
 
 	for suf, handler := range sufferring {
 		var tryfiles []string
-		if strings.HasSuffix(path, "/") {
+		if strings.HasSuffix(route, "/") {
 			for _, index := range indexFiles {
-				tryfiles = append(tryfiles, filepath.Join(base, path, index+"."+suf))
+				tryfiles = append(tryfiles, path.Join(base, route, index+"."+suf))
 			}
 		} else {
-			tryfiles = append(tryfiles, filepath.Join(base, path+"."+suf))
+			tryfiles = append(tryfiles, path.Join(base, route+"."+suf))
 		}
 
 		for _, f := range tryfiles {
@@ -404,22 +403,22 @@ again:
 		}
 	}
 
-	if f, err := werc.fs.Open(base + path); err == nil {
+	if f, err := werc.fs.Open(base + route); err == nil {
 		defer f.Close()
 
 		st, _ := f.Stat()
 		if st.Mode().IsDir() {
 			// directory handling
-			log.Printf("d %s", base+path)
-			werc.WercDir(w, r, site, base+path)
+			log.Printf("d %s", base+route)
+			werc.WercDir(w, r, site, base+route)
 			return
 		}
 
 		// plain file handling
-		log.Printf("f %s", base+path)
+		log.Printf("f %s", base+route)
 
 		// ripped from http.serveContent
-		ctype := mime.TypeByExtension(filepath.Ext(path))
+		ctype := mime.TypeByExtension(path.Ext(route))
 		if ctype == "" {
 			// read a chunk to decide between utf-8 text and binary
 			var buf [512]byte
@@ -442,7 +441,7 @@ again:
 		goto again
 	}
 
-	log.Printf("404 %s", path)
+	log.Printf("404 %s", route)
 
 	http.NotFound(w, r)
 }

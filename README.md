@@ -12,7 +12,7 @@ clone of http://werc.cat-v.org/ in go.
 
 ### with go
 
-	go install git.froth.zone/sam/go2werc
+	go install git.froth.zone/sam/go2werc@latest
 
 ### in docker
 

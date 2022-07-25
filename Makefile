@@ -1,9 +1,9 @@
 P=gowerc
-SRC=bitbucket.org
-USER?=mischief
-GO_VERSION=1.6
+SRC=git.froth.zone
+USER?=fishe
+GO_VERSION=1.18
 
-all:	$(USER)/$(P)
+docker:	$(USER)/$(P)
 
 $(USER)/$(P):	bin/$(P)
 	docker build -t "$(USER)/$(P):latest" .
