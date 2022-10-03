@@ -1,0 +1,3 @@
+[submodule "root/sites/dns.froth.zone"]
+	path = root/sites/dns.froth.zone
+	url = ../dns.froth.zone.git

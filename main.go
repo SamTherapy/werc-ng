@@ -476,5 +476,7 @@ func main() {
 		TLSConfig:      tlsconf,
 	}
 
+	fmt.Println("Listening on", *listen)
+
 	log.Fatal(s.Serve(listener))
 }
