@@ -147,9 +147,9 @@ func (werc *Werc) genmenu(site, dir string) MenuEntries {
 
 	_, current := path.Split(dir)
 
-	if current != "" {
-		spl = spl[:len(spl)-1]
-	}
+	// if current != "" {
+	// 	spl = spl[:len(spl)-1]
+	// }
 
 	//log.Printf("base %s path %s spl %+v", base, dir, spl)
 
@@ -178,7 +178,7 @@ func (werc *Werc) genmenu(site, dir string) MenuEntries {
 				me.Name = me.Name + "/"
 			}
 			// if browing a file, mark it as current
-			if me.Name == current {
+			if me.Name == current || me.Name == current+"/" {
 				me.This = true
 			}
 			//log.Printf("me %+v", me)
@@ -381,13 +381,14 @@ again:
 
 	for suf, handler := range sufferring {
 		var tryfiles []string
-		if strings.HasSuffix(route, "/") {
-			for _, index := range indexFiles {
-				tryfiles = append(tryfiles, path.Join(base, route, index+"."+suf))
-			}
-		} else {
-			tryfiles = append(tryfiles, path.Join(base, route+"."+suf))
+		// if strings.HasSuffix(route, "/") {
+		for _, index := range indexFiles {
+			tryfiles = append(tryfiles, path.Join(base, route, index+"."+suf))
 		}
+		// } else {
+		tryfiles = append(tryfiles, path.Join(base, route+"."+suf))
+		// }
+		fmt.Println("Files:", tryfiles)
 
 		for _, f := range tryfiles {
 			fh, err := werc.fs.Open(f)
